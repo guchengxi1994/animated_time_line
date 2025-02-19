@@ -5,11 +5,55 @@ import 'dart:io';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 
+class TimelineDecorationImage {
+  final String image;
+  // image type: network or file or asset
+  final String type;
+
+  TimelineDecorationImage({required this.image, required this.type});
+
+  static TimelineDecorationImage mock() {
+    return TimelineDecorationImage(
+        image:
+            'https://img1.baidu.com/it/u=3447440298,1362600045&fm=253&fmt=auto&app=138&f=JPEG?w=750&h=500',
+        type: 'network');
+  }
+
+  Widget build({double width = 300, double height = 300}) {
+    Widget img;
+
+    if (type == 'network') {
+      img = Image.network(
+        image,
+        fit: BoxFit.cover,
+      );
+    } else if (type == 'file') {
+      img = Image.file(
+        File(image),
+        fit: BoxFit.cover,
+      );
+    } else if (type == 'asset') {
+      img = Image.asset(
+        image,
+        fit: BoxFit.cover,
+      );
+    } else {
+      img = Container();
+    }
+
+    return SizedBox(
+      width: width,
+      height: height,
+      child: img,
+    );
+  }
+}
+
 class TimelineItem {
   final int id;
   final String title;
   final String? description;
-  final String? decorationImage;
+  final TimelineDecorationImage? decorationImage;
   final List<SubTimelineItem> subItems;
 
   TimelineItem({
@@ -25,8 +69,7 @@ class TimelineItem {
         id: id,
         title: 'Title $id',
         description: 'Description',
-        decorationImage:
-            'https://img1.baidu.com/it/u=3447440298,1362600045&fm=253&fmt=auto&app=138&f=JPEG?w=750&h=500',
+        decorationImage: TimelineDecorationImage.mock(),
         subItems: [
           SubTimelineItem(
             title: 'Sub Title1',
@@ -51,9 +94,11 @@ class SubTimelineItem {
 }
 
 class _TimelineItemWidget extends StatefulWidget {
-  const _TimelineItemWidget({required this.item, required this.notifier});
+  const _TimelineItemWidget(
+      {required this.item, required this.notifier, required this.height});
   final TimelineItem item;
   final ValueNotifier<int> notifier;
+  final double height;
 
   @override
   State<_TimelineItemWidget> createState() => __TimelineItemWidgetState();
@@ -66,38 +111,56 @@ class __TimelineItemWidgetState extends State<_TimelineItemWidget> {
   Widget build(BuildContext context) {
     bool isThis = widget.notifier.value == widget.item.id;
 
-    return AnimatedContainer(
-      duration: Duration(milliseconds: 500),
-      width: isThis ? 500 : 300,
-      child: Row(
-        children: [
-          Container(
-            height: double.infinity,
-            decoration: widget.item.decorationImage != null
-                ? BoxDecoration(
-                    image: widget.item.decorationImage!.startsWith("http")
-                        ? DecorationImage(
-                            fit: BoxFit.cover,
-                            image: NetworkImage(widget.item.decorationImage!))
-                        : DecorationImage(
-                            fit: BoxFit.cover,
-                            image:
-                                FileImage(File(widget.item.decorationImage!))))
-                : null,
-            width: 300,
-            child: Text(widget.item.title),
-          ),
-          AnimatedContainer(
-            duration: Duration(milliseconds: 500),
-            width: isThis ? 200 : 0,
-            child: isThis
-                ? Column(
-                    children:
-                        widget.item.subItems.map((e) => Text(e.title)).toList(),
-                  )
-                : Container(),
-          )
-        ],
+    return Material(
+      elevation: isThis ? 4 : 0,
+      child: AnimatedContainer(
+        decoration:
+            BoxDecoration(borderRadius: BorderRadius.circular(isThis ? 4 : 0)),
+        duration: Duration(milliseconds: 500),
+        width: isThis ? 500 : 300,
+        child: Row(
+          children: [
+            SizedBox(
+              height: widget.height,
+              width: 300,
+              child: Stack(
+                children: [
+                  SizedBox.expand(),
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    child: Builder(builder: (c) {
+                      return widget.item.decorationImage?.build(
+                              width: 300, height: widget.height * 0.6) ??
+                          SizedBox(
+                            width: 300,
+                            height: widget.height * 0.6,
+                          );
+                    }),
+                  ),
+                  Positioned(
+                      top: 0.5 * widget.height,
+                      child: Container(
+                        width: 300,
+                        height: 0.5 * widget.height,
+                        color: Colors.white.withValues(alpha: 0.5),
+                      ))
+                ],
+              ),
+            ),
+            AnimatedContainer(
+              duration: Duration(milliseconds: 500),
+              width: isThis ? 200 : 0,
+              child: isThis
+                  ? Column(
+                      children: widget.item.subItems
+                          .map((e) => Text(e.title))
+                          .toList(),
+                    )
+                  : Container(),
+            )
+          ],
+        ),
       ),
     );
   }
@@ -122,6 +185,18 @@ class _AnimatedTimeLineState extends State<AnimatedTimeLine> {
   @override
   void initState() {
     super.initState();
+    controller.addListener(() {
+      if (controller.offset >= controller.position.maxScrollExtent) {
+        notifier.value = widget.items.last.id;
+      } else if (controller.offset <= controller.position.minScrollExtent) {
+        notifier.value = widget.items.first.id;
+      } else {
+        int index = ((controller.offset + 200) / 300).floor();
+        if (index >= 0 && index < widget.items.length) {
+          notifier.value = widget.items[index].id;
+        }
+      }
+    });
   }
 
   @override
@@ -140,6 +215,7 @@ class _AnimatedTimeLineState extends State<AnimatedTimeLine> {
             height: widget.height,
             width: width,
             child: Column(
+              spacing: 10,
               children: [
                 Expanded(
                     child: SingleChildScrollView(
@@ -148,8 +224,12 @@ class _AnimatedTimeLineState extends State<AnimatedTimeLine> {
                   child: Row(
                     children: widget.items.map((e) {
                       return Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: _TimelineItemWidget(item: e, notifier: notifier),
+                        padding: const EdgeInsets.all(2.0),
+                        child: _TimelineItemWidget(
+                          item: e,
+                          notifier: notifier,
+                          height: widget.height,
+                        ),
                       );
                     }).toList(),
                   ),
@@ -163,7 +243,7 @@ class _AnimatedTimeLineState extends State<AnimatedTimeLine> {
                         .mapIndexed((i, e) => GestureDetector(
                               onTap: () {
                                 notifier.value = e.id;
-                                if (i > 1) {
+                                if (i > 0) {
                                   controller.animateTo((i - 1) * 300 + 200,
                                       duration: Duration(milliseconds: 500),
                                       curve: Curves.easeInOut);
